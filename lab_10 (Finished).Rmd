@@ -1,0 +1,236 @@
+---
+title: "lab_10"
+author: "Derek Willis"
+date: "2023-04-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## You will need
+
+-   Our usual libraries, plus some of the map-specific ones from the pre_lab. You'll also be fetching Census data in Q3. Read the questions carefully!
+
+## Load libraries and establish settings
+
+**Task** Create a codeblock and load appropriate packages and settings for this lab.
+
+```{r}
+library(tidyverse)
+library(sf)
+library(janitor)
+library(tigris)
+library(tidycensus)
+options(tigris_use_cache=TRUE)
+```
+
+Let's explore Maryland elections, power outages and electric vehicle data and make some maps!
+
+## Questions
+
+**Q1.** Maryland voters made history last November by electing the state's first two African-American statewide office holders: Wes Moore as governor and Anthony Brown as attorney general. You want to compare the two's electoral performances. Using the `md_statewide_county.csv` file in the data folder, calculate the total number of votes for both the governor's race and the attorney general's race, then percentages for both Moore and Brown *based on the total of their respective contests*. Then calculate the difference between their percentages.
+
+Get the geometry for Maryland's counties using tigris and, joining that dataframe to your results dataframe, make a county-level map of the differences between Moore and Brown's percentages. What is the story here, and what is the county with the most interesting results?
+
+**A1.** I think Baltimore County and Prince George's County, whose Black population makes up more than 64% of their total population standout. These counties are the only ones who voted for Brown more than Moore, but also represent the highest percentage of votes for both counties. I would do a story focused on the importance of the Black politicians in power on the black population, especially in a state where there has been issues of systematic racism. 
+
+```{r}
+MD_Voting_Totals <- read_csv("data/md_statewide_county.csv")
+  
+```
+
+Total Gov Votes is 1754475	/ Moore total is 1094234/ AG Total is 1503462	/Brown Total is 901928	
+Moore = 62.37%, Borwn 59.99%
+Difference = 2.38	
+
+```{r}
+MD_Voting_Totals %>% 
+  summarise(sum(Cox + Moore + Lashar + Wallace + Harding + Sefcik + GovWritein))  
+```
+```{r}
+Moore_Total <- MD_Voting_Totals %>% 
+  summarise(sum(Moore))
+```
+```{r}
+MD_Voting_Totals %>% 
+summarise(sum(Peroutka + Brown + AgWritein))
+```
+```{r}
+MD_Voting_Totals %>% 
+  summarise(sum(Brown))
+```
+```{r}
+MD_Voting_Total_Percent <- MD_Voting_Totals %>% 
+  mutate(Moore_PCT = Moore / (Cox + Moore + Lashar + Wallace + Harding + Sefcik + GovWritein)*100) %>% 
+  mutate(Brown_PCT = Brown / (Peroutka + Brown + AgWritein)*100)  
+```
+
+```{r}
+MD_Voting_Total_Percent %>% clean_names()
+  
+```
+
+```{r}
+MD_Total_Percent_Mutate<-MD_Voting_Total_Percent %>% 
+  mutate(GEOID=as.character(GEOID))
+```
+
+
+```{r}
+counties <- counties() 
+```
+```{r}
+md_counties <- counties |>
+  filter(STATEFP == "24")
+```
+```{r}
+MD_Counties <- md_counties %>% clean_names()
+```
+
+
+```{r}
+MD_County_Geom <- MD_Counties |>
+  rename(county = name) |>
+  mutate(county = str_to_title(str_remove_all(county,", Maryland"))) |>
+  mutate(county = str_trim(county,side="both")) 
+
+MD_County_Geom
+```
+
+
+
+
+
+
+```{r}
+MD_County_Join_New <- MD_County_Geom %>% left_join(MD_Total_Percent_Mutate, join_by(geoid==GEOID))
+
+MD_County_Join_New
+```
+```{r}
+MD_County_Moore_Difference <- MD_County_Join_New %>% 
+  mutate(Moore_Difference= Moore_PCT-Brown_PCT)
+```
+
+
+```{r}
+ggplot()+
+  geom_sf(data = MD_County_Moore_Difference, aes(fill=Moore_Difference)) +
+  theme_minimal()+
+  scale_fill_viridis_b(option="magma")
+```
+
+
+**Q2.** Make a county-level map to explore the number of customers impacted by power outages in Maryland from last March. 
+
+Load the `county_outages_march2023.csv` file in the data folder and calculate a rate of customers with outages per 10,000 total customers for each county. 
+
+Then join that dataframe to your Maryland counties dataframe you made in Q1 and create a county-level map of the results; 
+
+you may need to tweak the fill scale to make the distinctions clearer. What's the potential story here? Given access to other months' outage data, what would your next steps be in reporting a story?
+
+**A2.** Talbot county has a disproportionately high amount of outages per 10,000 people. I'd check if this was an outlier or a consistent people. scale_fill_viridis_b(option="magma",trans = "log")
+
+
+
+```{r} 
+County_Outages <- read_csv("data/county_outages_march2023.csv")
+```
+```{r}
+Outages_With_Capita<-County_Outages %>% 
+mutate(Outage_Per_10K= outage_customers/total_customers*10000)
+```
+```{r}
+Outages_Join_New <- MD_Counties %>% left_join(Outages_With_Capita, join_by(name==county))
+
+Outages_Join_New
+```
+```{r}
+ggplot()+
+  geom_sf(data = Outages_Join_New, aes(fill=Outage_Per_10K)) +
+  theme_minimal()+
+  scale_fill_viridis_b(option="magma", trans = "log")
+```
+
+
+**Q3.** You've been assigned a story about the use of electric vehicles in Maryland and you want to make a map of the prevalence of electric vehicles in each county. 
+
+Load the `ev_2020_2023.csv` file, which has the number of electric and hybrid vehicles per county from July 2020 and March 2023 and calculate a percentage change for each county (remember, that's `new-old/old`). 
+
+Using the Maryland counties dataframe you made for Q1, make a county map showing the percentage change. What counties stand out to you? What questions do you have about the changes you're seeing? Caroline county stands out as the highest, my natural question is how does this change for per capita. 
+
+Next, use tidycensus to retrieve county population data for Maryland from 2021 (you did this in the pre_lab) and join it to your vehicles dataframe. HINT: you may not need to join it on the county name, and you should already have the geometry!
+
+Then, calculate a per capita rate of electric & hybrid vehicles using the March 2023 figure and the population estimate. You will need to choose the "per capita" value.
+
+Finally, make a second county map showing the per capita rate. What counties stand out on this map? How is it different from the first one you made?
+
+**A3.**
+For this one Howard and Montgomery stand out, while in the first one Caroline County did. Now it is near the bottom. This is mirrored in other counties, however I do think if we had something from 2018 or 19 (COVID may have had an effect on 2020 rates) and compared the rate of population growth to theft growth, we'd have a unique story. 
+
+
+```{r}
+Vehicle_Data <- read_csv("data/ev_2020_2023.csv") 
+```
+
+```{r}
+Vehicle_PCT_Change_New <- Vehicle_Data %>% 
+  mutate(PCT_Change=(march_2023-july_2020)/july_2020*100)
+```
+
+
+```{r}
+Vehicle_Join_New <-MD_Counties %>% left_join(Vehicle_PCT_Change_New, join_by(name==county))
+```
+
+```{r}
+ggplot()+
+  geom_sf(data = Vehicle_Join_New, aes(fill=PCT_Change)) +
+  scale_fill_viridis_b(option="magma",trans = "log")+
+  theme_minimal()
+```
+
+```{r}
+#census_api_key("549950d36c22ff16455fe196bbbd01d63cfbe6cf")
+```
+
+
+```{r}
+md_county_population <- get_acs(geography = "county",
+              variables = c(population = "B01001_001"),
+              year = 2021,
+              state = "MD")
+```
+
+```{r}
+County_Pop_New <- md_county_population %>% 
+  mutate(NAME = str_to_title(str_remove_all(NAME,"County, Maryland"))) 
+```
+```{r}
+County_Pop_Fixed_Probaly<-County_Pop_New %>% 
+  mutate(NAME = str_to_title(str_remove_all(NAME,", Maryland"))) %>% 
+  mutate(NAME = str_trim(NAME,side="both"))
+```
+
+
+```{r}
+Vehicle_County_Join <- Vehicle_Join_New %>% inner_join(County_Pop_Fixed_Probaly,join_by(name==NAME))
+
+Vehicle_County_Join
+```
+
+```{r}
+Vehicle_County_Join_Capita <- Vehicle_County_Join %>% 
+  mutate(Theft_Per_Capita=march_2023/estimate*10000)
+```
+
+
+```{r}
+ggplot()+
+  geom_sf(data = Vehicle_County_Join_Capita, aes(fill=Theft_Per_Capita)) +
+  scale_fill_viridis_b(option="magma",trans = "log")+
+  theme_minimal()
+```
+
