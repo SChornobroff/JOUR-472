@@ -1,0 +1,100 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+install.packages("tidycensus")
+```
+
+
+```{r}
+plot(cars)
+library(tidyverse)
+library(janitor)
+library(lubridate)
+library(dplyr)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+```{r}
+Clean_MD_Cases_By_County<-MD_COVID_19_Cases_by_County %>% 
+  clean_names() 
+  
+```
+
+
+```{r}
+library(lubridate)
+```
+
+
+Was having a slight issue with my mutate, asked ChatGPT
+```{r}
+Clean_MD_Cases_By_County <- Clean_MD_Cases_By_County %>%
+  mutate(date = mdy_hms(date) %>% date())
+```
+
+Let's try to measure if we had a rise in November, specifically in the aftermath of Thanksgiving
+```{r}
+November_Cases_2023 <- Clean_MD_Cases_By_County %>%
+  filter(year(date) == 2023, month(date) == 11)
+```
+
+
+```{r}
+November_Cases_Mutate <-November_Cases_2023 %>% 
+  rowwise() %>% 
+  mutate(total_cases = sum(c_across(-c(objectid, date)),na.rm = TRUE))
+```
+
+
+Lets see if there's a Thanksgiving rise: 
+
+November 27: 1414197, November 13: 1410997
+
+There was only a .23% rise between Nov. 13 and Nov. 27, meaning the state scaved off a Thanksgiving spike 
+
+November 28: 1414663, November 1: 1408534 
+
+Cases rose .44% in Maryland in November. There was 6,129 more cases on Nov. 28 than on the first day of the month. There was a more than 3,200 case increase in that time. 
+
+```{r}
+November_Cases_Mutate %>% 
+  mutate(Thanksgiving_Change = (1414197-1410997)/1410997*100)
+```
+
+```{r}
+November_Cases_Mutate %>% 
+  mutate(November_Change= (1414663-1408534)/1408534*100)
+```
+
+```{r}
+November_Cases_Difference <- November_Cases_Mutate %>%
+  arrange(date)
+
+November_Cases_Difference$diff <- c(NA, diff(November_Cases_Difference$total_cases))
+
+```
+
+
+Lets make a line graph, showing the trajectory of COVID cases over the past month. This helps illustrate a spike in COVID cases that I thought wasn't as severe. However, this graph makes it seem exactly so. 
+
+```{r}
+November_Cases_Difference %>% 
+  ggplot() + 
+  geom_line(aes(x=date, y=diff))
+```
+
+
+
+
