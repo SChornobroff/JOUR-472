@@ -1,0 +1,359 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+install.packages("tidycensus")
+```
+
+
+```{r}
+plot(cars)
+library(tidyverse)
+library(janitor)
+library(lubridate)
+library(dplyr)
+library(tidycensus)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+```{r}
+MD_COVID_19_Cases_by_County<-read_csv("data/MD_Cases_By_County.csv")
+```
+
+
+```{r}
+Clean_MD_Cases_By_County<-MD_COVID_19_Cases_by_County %>% 
+  clean_names() 
+
+head(Clean_MD_Cases_By_County)
+```
+
+Was having a slight issue with dates being NA after my intial mutate, worked trough the issue with ChatGPT and ended up here. Literally copied the format of the date column with my code and asked, "Why did this come up NA"
+
+```{r}
+Clean_MD_Cases_By_County <- Clean_MD_Cases_By_County %>%
+  mutate(date = mdy_hms(date),  # Convert character to date
+         date = as.Date(date))  # Extract only the date part
+
+# Now the 'date' column will contain the date part only
+
+Clean_MD_Cases_By_County
+
+```
+
+This made my date columns NA, I showed my original format in ChatGPT and asked why it became NA and got this code.
+Let's try to measure if we had a rise in November, specifically in the aftermath of Thanksgiving
+```{r}
+November_Cases_2023 <- Clean_MD_Cases_By_County %>%
+  filter(year(date) == 2023, month(date) == 11)
+
+November_Cases_2023
+```
+
+
+```{r}
+November_Cases_Mutate <-November_Cases_2023 %>% 
+  rowwise() %>% 
+  mutate(total_cases = sum(c_across(-c(objectid, date)),na.rm = TRUE))
+
+November_Cases_Mutate
+```
+
+
+Lets see if there's a Thanksgiving rise: 
+
+November 27: 1414197, November 13: 1410997
+
+There was only a .23% rise between Nov. 13 and Nov. 27, meaning the state scaved off a Thanksgiving spike 
+
+November 28: 1414663, November 1: 1408534 
+
+Cases rose .44% in Maryland in November. There was 6,129 more cases on Nov. 28 than on the first day of the month. There was a more than 3,200 case increase in that time. 
+
+```{r}
+November_Cases_Mutate %>% 
+  mutate(Thanksgiving_Change = (1414197-1410997)/1410997*100)
+```
+
+```{r}
+November_Cases_Mutate %>% 
+  mutate(November_Change= (1414663-1408534)/1408534*100)
+```
+
+```{r}
+November_Cases_Difference <- November_Cases_Mutate %>%
+  arrange(date)
+
+November_Cases_Difference$diff <- c(NA, diff(November_Cases_Difference$total_cases))
+
+November_Cases_Difference
+```
+
+
+Lets make a line graph, showing the trajectory of COVID cases over the past month. This helps illustrate a spike in COVID cases that I thought wasn't as severe. However, this graph makes it seem exactly so. Exactly around Thanksgiving, there was a major spike in COVID cases. 
+
+```{r}
+November_Cases_Difference %>% 
+  ggplot() + 
+  geom_line(aes(x=date, y=diff))
+```
+
+
+
+Vaccination Rate by Population: 
+
+4/20/23 is the last day of that data
+
+```{r}
+MD_COVID_19_Vaccinations_by_County <- read_csv("data/MD_Vaccinations_By_County.csv")
+```
+
+
+```{r}
+MD_Vaccinations_By_County<-MD_COVID_19_Vaccinations_by_County %>% 
+  clean_names() 
+```
+
+```{r}
+MD_Vaccinations_By_County<-MD_Vaccinations_By_County %>% 
+  mutate(vaccination_date = mdy_hms(vaccination_date) %>% date())
+
+MD_Vaccinations_By_County
+```
+
+
+
+```{r}
+April_20_2023_Vaccine <- MD_Vaccinations_By_County %>%
+  filter(vaccination_date == as.Date("2023-04-20"))
+
+
+April_20_2023_Vaccine  
+```
+There are three counties missing: Somerset, Garret and Dorchester, here's how I'm creating a dataframe with those three counties. I will then join those datasets. 
+
+```{r}
+Missing_County_Vaccine <- MD_Vaccinations_By_County %>%
+  filter((county == "Somerset" & vaccination_date == as.Date("2023-04-19")) |
+         (county == "Garrett" & vaccination_date == as.Date("2023-04-18")) |
+         (county == "Dorchester" & vaccination_date == as.Date("2023-04-19")))
+
+Missing_County_Vaccine
+```
+
+```{r}
+Combined_Vaccine <- rbind(April_20_2023_Vaccine, Missing_County_Vaccine)
+
+Combined_Vaccine
+```
+
+
+I combined these two rows to give me a table of county and percentage of people fully vaccinated. 
+
+```{r}
+Fully_Vaccinated <- Combined_Vaccine %>%
+  select(county, fullyvaccinatedcumulative)
+
+Fully_Vaccinated
+```
+
+```{r}
+#census_api_key("549950d36c22ff16455fe196bbbd01d63cfbe6cf")
+```
+
+
+I grab population data to contextualize the rate of people vaccinated to the population. 
+
+```{r}
+md_county_population <- get_acs(geography = "county",
+              variables = c(population = "B01001_001"),
+              year = 2021,
+              state = "MD")
+```
+
+```{r}
+md_county_population <-md_county_population %>% 
+  mutate(NAME = str_to_title(str_remove_all(NAME,"County, Maryland")))
+
+md_county_population
+```
+
+```{r}
+md_county_population<-md_county_population %>% 
+  rename(county = NAME)
+
+md_county_population
+```
+
+
+```{r}
+md_county_population <-md_county_population %>% 
+  mutate(county = str_to_title(str_remove_all(county,", Maryland"))) %>% 
+  mutate(county = str_trim(county,side="both"))
+
+md_county_population
+```
+
+
+Apostrophe's were causing me 30 minutes of confusion, eventually realized and asked ChatGPT the most efficient way to remove them. 
+
+```{r}
+md_county_population <- md_county_population %>%
+  mutate(county = gsub("'", "", county))
+```
+
+```{r}
+County_Pop_Vaccinated <- md_county_population %>% left_join(Fully_Vaccinated)
+```
+
+
+```{r}
+Population_Fully_Vaccinated<-County_Pop_Vaccinated %>% 
+  mutate(Pop_Percent_Fully_Vaccinated = fullyvaccinatedcumulative/estimate*100)
+
+Population_Fully_Vaccinated
+```
+
+
+```{r}
+write_csv(Population_Fully_Vaccinated,"Population_Fully_Vaccinated.csv")
+```
+
+Map via Datawrapper: https://www.datawrapper.de/_/v98nt/
+
+*Garrett County, most white dominant county has lowest full vaccination rate. 
+*Montgomery County has more than 87% of its population vaccinated. 
+
+
+```{r}
+MD_COVID_19_Probable_Deaths_by_County <-read_csv("data/MD_COVID_19_Probable_Deaths_by_County.csv")
+```
+
+
+```{r}
+Probable_Deaths_By_County <- MD_COVID_19_Probable_Deaths_by_County %>% 
+  clean_names()
+
+Probable_Deaths_By_County
+```
+
+
+```{r}
+Probable_Deaths_By_County<-Probable_Deaths_By_County %>% 
+mutate(date = mdy_hms(date) %>% date())
+
+Probable_Deaths_By_County
+```
+
+Column formatting proved to be a major problem here. Having to establish numeric columns was a necessity. However, once I pivoted my goal to do this without objectid and date, it became significantly easier. 
+
+
+```{r}
+numeric_columns <- setdiff(colnames(Probable_Deaths_By_County), c("County", "objectid"))
+Probable_Deaths_By_County[numeric_columns] <- lapply(Probable_Deaths_By_County[numeric_columns], as.numeric)
+
+Probable_Deaths_By_County
+```
+
+
+I asked ChatGPT how to flip the dataframe to give me a two columns, one for total deaths per county and one for the county name. 
+
+```{r}
+total_deaths_per_county <- data.frame(
+  County = colnames(Probable_Deaths_By_County),
+  Total_Deaths = colSums(Probable_Deaths_By_County, na.rm = TRUE)
+)
+
+total_deaths_per_county
+```
+
+```{r}
+total_deaths_per_county <- total_deaths_per_county[!(total_deaths_per_county$County %in% c("objectid", "date")), ]
+
+total_deaths_per_county
+```
+
+Names were originally messing up my join seen after this. I went county by county in ChatGPT and asked it to draw up code for a matching spelling to the population datafram to ensure the join had no reason to be off. Originally I was getting NAs on the total deaths column. 
+
+```{r}
+library(dplyr)
+
+# Replace the county names according to your specifications
+total_deaths_per_county <- total_deaths_per_county %>%
+  mutate(County = case_when(
+    County == "allegany" ~ "Allegany",
+    County == "anne_arundel" ~ "Anne Arundel",
+    County == "baltimore" ~ "Baltimore",
+    County == "baltimore_city" ~ "Baltimore City",
+    County == "calvert" ~ "Calvert",
+    County == "caroline" ~ "Caroline",
+    County == "carroll" ~ "Carroll",
+    County == "cecil" ~ "Cecil",
+    County == "charles" ~ "Charles",
+    County == "dorchester" ~ "Dorchester",
+    County == "frederick" ~ "Frederick",
+    County == "garrett" ~ "Garrett",
+    County == "harford" ~ "Harford",
+    County == "howard" ~ "Howard",
+    County == "kent" ~ "Kent",
+    County == "montgomery" ~ "Montgomery",
+    County == "prince_georges" ~ "Prince Georges",
+    County == "queen_annes" ~ "Queen Annes",
+    County == "somerset" ~ "Somerset",
+    County == "st_marys" ~ "St. Marys",
+    County == "talbot" ~ "Talbot",
+    County == "washington" ~ "Washington",
+    County == "wiomico" ~ "Wiomico",
+    County == "worcester" ~ "Worcester",
+    TRUE ~ County  
+  ))
+
+print(total_deaths_per_county)
+
+```
+
+```{r}
+total_deaths_per_county<-total_deaths_per_county %>% 
+  rename(county = County)
+```
+
+```{r}
+Population_Death_Join <-md_county_population %>% left_join(total_deaths_per_county)
+
+
+Population_Death_Join
+```
+
+I decided to do per 10,000 people. Kent County has a low population total, therefore has a disproportionate amount of deaths. They are worth investigating, however due to the vaccination rates from before and how Montgomery County led, they may be the story here. 
+
+```{r}
+ Population_Death_Join<-Population_Death_Join %>% 
+  mutate(Deaths_Per_10000 = Total_Deaths/estimate * 10000) %>% 
+  arrange(desc(Deaths_Per_10000))
+
+Population_Death_Join
+```
+
+
+
+My three pitches: 
+
+1. In November, there was a big spike near the end of the month, coinciding with Thanksgiving. This may seem like an annual tradition at this point, but heading into the holidays, what are the best ways to keep safe and which towns are most responsible for the spike. 
+
+2. Garrett County, the county with the highest amount of white population has the lowest fully vaccinated population. They are the only county below 50% when comparing vaccination and population data, although that could have grown. Why isn't there a rush and have those numbers been growing.
+
+3. Montgomery County has the highest Deaths per capita of a county with more than 20,000 citizens and also the state's highest vaccination rate. Was vaccinations a reponse to a number of early deaths, or has it not been working? How the pandemic affected Montgomery County is an interesting story. 
+
+
+
